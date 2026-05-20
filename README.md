@@ -27,9 +27,9 @@ cmake .. -DENABLE_TEST=ON -DENABLE_TIME=OFF
 make -j$(nproc)
 ./buff_detector
 ```
+或直接运行run.shell
 
-
-
+ - 注：在运行时可通过命令行传入视频路径，否则默认使用当前目录的"test1.mp4"视频文件，若需使用摄像头可更改`cv::VideoCaptrue`
 
 程序将从当前目录下的 `../test1.mp4` 读取视频，并输出处理后的视频 `output.avi`。
 
