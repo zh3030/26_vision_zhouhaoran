@@ -1,0 +1,20 @@
+%YAML:1.0
+---
+# 预处理
+threshold_value: 200
+morph_kernel_width: 5
+morph_kernel_height: 5
+# 轮廓过滤
+min_contour_area: 100.0
+min_circularity: 0.6
+length_width_ratio_min: 0.5
+length_width_ratio_max: 1.5
+# 扇叶角点提取
+approx_poly_epsilon: 3.0
+# 轮廓分组
+duplicate_distance_threshold: 100.0
+# 能量机关结构
+sector_count: 5
+sector_angle: 72.0
+# 预测向量队列容量
+max_vector_capacity: 10
