@@ -13,7 +13,9 @@
 buff::buff(const BuffParams& params)
     : m_params(params),
     div_data(m_params.sector_count + 1, std::vector<BuffData>()),
+#ifdef ADD_POINTS
     m_vec_center(m_params.sector_count + 1, cv::Point(-1, -1)),
+#endif
     roi_info({ 0, 0, 0 }),
     angle_deque()
 {
@@ -177,7 +179,6 @@ void buff::subImage(const cv::Mat& input, cv::Mat& output) {
 
     // 尝试启用 OpenCL（如果环境支持）
     bool useOpenCL = cv::ocl::useOpenCL();  // 检测当前OpenCL是否可用
-
     if (useOpenCL) {
         try {
             cv::UMat u_input, u_output;
@@ -413,6 +414,7 @@ void buff::extractUnoccludedBladeCorners(BuffData& blade, cv::Mat& image) {
         cv::line(image, blade.corners_d[i], blade.corners_d[(i + 1) % blade.corners_d.size()], cv::Scalar(0, 255, 0), 2);
     }
 #endif
+
 }
 
 void buff::extractPartiallyOccludedBladeCorners(std::vector<BuffData>& sector_data,
@@ -470,10 +472,12 @@ void buff::extractInactiveBladeCornersByInnerCenters(std::vector<BuffData>& sect
         cv::RotatedRect rect = cv::minAreaRect(d.contour_d);
         std::array<cv::Point2f, 4> vertices;
         rect.points(vertices.data());
+#ifdef BUFF_TEST
         for (size_t j = 0; j < 4; ++j) {
             cv::line(image, vertices[j], vertices[(j + 1) % 4], cv::Scalar(255, 255, 0), 2);
             cv::circle(image, vertices[j], 5, cv::Scalar(255, 255, 0), -1);
         }
+#endif
     }
 
     // 利用收集到的内轮廓中心生成凸包角点
@@ -482,15 +486,14 @@ void buff::extractInactiveBladeCornersByInnerCenters(std::vector<BuffData>& sect
         cv::convexHull(centers, hull);
         // 计算偏移角点：相邻凸包点之和减去圆中心
         // 相当于将内轮廓中心作为参考，先得到四条半径与内圆的交点，再用圆心推得所需要的角点
-        for (size_t i = 0; i < hull.size(); ++i) {
-            cv::Point corner = hull[i] + hull[(i + 1) % hull.size()] - circle_center;
-            cv::circle(image, corner, 5, cv::Scalar(255, 255, 0), -1);
-        }
         // 同时将生成的角点存入扇区首个元素（圆）中
         sector_data[0].corners_d.clear();
         for (size_t i = 0; i < hull.size(); ++i) {
             cv::Point corner = hull[i] + hull[(i + 1) % hull.size()] - circle_center;
             sector_data[0].corners_d.push_back(corner);
+#ifdef BUFF_TEST
+            cv::circle(image, corner, 5, cv::Scalar(255, 255, 0), -1);
+#endif
         }
     }
 }

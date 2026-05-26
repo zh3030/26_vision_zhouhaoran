@@ -61,14 +61,18 @@ int main(int argc, char** argv) {
 		return -1;
 	}
 #endif
+#ifdef BUFF_TIME
+	cv::TickMeter tm;
+#endif
 	while (cap.isOpened())
 	{
-
-
+		#ifdef BUFF_TIME
+		tm.reset(); tm.start();
+		#endif
 		cap >> initial_frame;
 		if (initial_frame.empty()) break;
-
-
+		
+		
 		if (roi.empty() || jump > 0)
 		{
 			roi = cv::Rect(0, 0, initial_frame.cols, initial_frame.rows);
@@ -83,28 +87,32 @@ int main(int argc, char** argv) {
 			frame = initial_frame(roi);
 			b.run(frame);
 		}
-
+		
 		//cv::Point center = b.get_center();
 		//const std::deque<AngleData>& angle_deque = b.get_angle_info();
 		//if (angle_deque.size() > 1)
 		//{
-		//	double angle_diff = angle_deque[1].angle_d - angle_deque[0].angle_d;
-		//	if (angle_diff > 180) angle_diff -= 360;
-		//	else if (angle_diff < -180) angle_diff += 360;
-		//	double time_diff = angle_deque[1].current_time_d - angle_deque[0].current_time_d;
-		//	if (time_diff < 1e-3) time_diff = 1000 / 60;
-		//	std::cout << angle_diff / time_diff << std::endl;
-		//	std::cout << angle_deque[0].distance_d << std::endl;
-		//}
-		//double predicted = predictAngle(angle_deque);
-		//cv::Point predicted_point = center + cv::Point(static_cast<int>(10 * std::cos(predicted)), static_cast<int>(100 * std::sin(predicted)));
-		//cv::circle(frame, predicted_point, 50, cv::Scalar(0, 0, 255), -1); 
-		// 此处原计划用于测试角速度，后续计划封装，但未完成。
-#ifdef BUFF_WRITE
-		writer.write(initial_frame);
-#endif
-		cv::imshow("frame", frame);
-		if (cv::waitKey(1) == 27) break; // 按下 ESC 键退出
+			//	double angle_diff = angle_deque[1].angle_d - angle_deque[0].angle_d;
+			//	if (angle_diff > 180) angle_diff -= 360;
+			//	else if (angle_diff < -180) angle_diff += 360;
+			//	double time_diff = angle_deque[1].current_time_d - angle_deque[0].current_time_d;
+			//	if (time_diff < 1e-3) time_diff = 1000 / 60;
+			//	std::cout << angle_diff / time_diff << std::endl;
+			//	std::cout << angle_deque[0].distance_d << std::endl;
+			//}
+			//double predicted = predictAngle(angle_deque);
+			//cv::Point predicted_point = center + cv::Point(static_cast<int>(10 * std::cos(predicted)), static_cast<int>(100 * std::sin(predicted)));
+			//cv::circle(frame, predicted_point, 50, cv::Scalar(0, 0, 255), -1); 
+			// 此处原计划用于测试角速度，后续计划封装，但未完成。
+			#ifdef BUFF_WRITE
+			writer.write(initial_frame);
+			#endif
+			cv::imshow("frame", frame);
+			#ifdef BUFF_TIME
+			tm.stop();
+			std::cout << "Frame processing time: " << tm.getTimeMilli() << " ms" << std::endl;
+			#endif
+			if (cv::waitKey(1) == 27) break; // 按下 ESC 键退出
 	}
 #ifdef BUFF_WRITE
 	writer.release();
