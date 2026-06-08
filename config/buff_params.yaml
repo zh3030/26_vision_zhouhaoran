@@ -18,3 +18,21 @@ sector_count: 5
 sector_angle: 72.0
 # 预测向量队列容量
 max_vector_capacity: 10
+# 相机内参&畸变系数
+camera_matrix: !!opencv-matrix
+   rows: 3
+   cols: 3
+   dt: f
+   data: [1300.0, 0.0, 1280.0, 0.0, 1300.0, 720.0, 0.0, 0.0, 1.0]
+dist_coeffs: !!opencv-matrix
+   rows: 1
+   cols: 5
+   dt: f
+   data: [0.0, 0.0, 0.0, 0.0, 0.0]
+world_points:
+   - [640, 360, 120]   # center R
+   - [990, 360, 0]     # 0°
+   - [748.156, 692.870, 0]     # 72°
+   - [356.844, 565.725, 0]     # 144°
+   - [356.844, 154.275, 0]     # 216°
+   - [748.156, 27.130, 0]      # 288°

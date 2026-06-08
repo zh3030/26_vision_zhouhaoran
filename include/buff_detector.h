@@ -13,13 +13,13 @@
 // 均由CMake控制
 
 /// 开启调试绘制
-// #define BUFF_TEST
+#define BUFF_TEST
 /// 预留宏
-//#define BUFF_COUT
+#define BUFF_COUT
 /// 开启耗时统计
-// #define BUFF_TIME
+#define BUFF_TIME
 /// 开启辅助点输出
-// #define ADD_POINTS
+#define ADD_POINTS
 
 /** @} */
 
@@ -44,22 +44,36 @@ namespace cv {
  */
 struct BuffParams {
     // 预处理
-    int threshold_value = 200;                      ///< 红蓝通道差分二值化阈值
-    cv::Size morph_kernel_size = cv::Size(5, 5);    ///< 形态学操作核大小
+    int threshold_value = 200;                                   ///< 红蓝通道差分二值化阈值
+    cv::Size morph_kernel_size = cv::Size(5, 5);                 ///< 形态学操作核大小
     // 轮廓过滤
-    double min_contour_area = 100.0;                ///< 最小轮廓面积
-    double min_circularity = 0.6;                   ///< 最小圆形度
-    double length_width_ratio_min = 0.5;            ///< 长宽比下限
-    double length_width_ratio_max = 1.5;            ///< 长宽比上限
+    double min_contour_area = 100.0;                             ///< 最小轮廓面积
+    double min_circularity = 0.6;                                ///< 最小圆形度
+    double length_width_ratio_min = 0.5;                         ///< 长宽比下限
+    double length_width_ratio_max = 1.5;                         ///< 长宽比上限
     // 扇叶角点提取
-    double approx_poly_epsilon = 3.0;               ///< 多边形逼近精度
+    double approx_poly_epsilon = 3.0;                            ///< 多边形逼近精度
     // 轮廓分组
-    double duplicate_distance_threshold = 100.0;    ///< 同一扇区重复轮廓判定距离
+    double duplicate_distance_threshold = 100.0;                 ///< 同一扇区重复轮廓判定距离
     // 能量机关结构
-    int sector_count = 5;                     ///< 待激活扇叶数量（不含R和待激活圆）
-    double sector_angle = 72.0;                     ///< 每个扇区角度 = 360/sector_count
+    int sector_count = 5;                                        ///< 待激活扇叶数量（不含R和待激活圆）
+    double sector_angle = 72.0;                                  ///< 每个扇区角度 = 360/sector_count
     // 用于预测向量的最大容量
-    int max_vector_capacity = 10;                   ///< 角度队列最大长度
+    int max_vector_capacity = 10;                                ///< 角度队列最大长度
+    // 相机内参（用于后续位姿估计）
+    cv::Mat camera_matrix = (cv::Mat_<float>(3, 3) << 
+    1600.0, 0.0, 1280.0, 0.0, 1600.0, 720.0, 0.0, 0.0, 1.0);     ///< 相机内参矩阵
+    cv::Mat dist_coeffs = cv::Mat::zeros(1, 5, CV_32F);          ///< 相机畸变系数
+    // 世界坐标系下的固定参考点（中心R和各扇叶位置）
+    std::vector<cv::Point3f> world_points =                      ///< 世界坐标系下的固定参考点（中心R和各扇叶位置)
+    {
+        cv::Vec3f(640, 360, 110), // center R
+        cv::Vec3f(990, 360, 0),   // 0°
+        cv::Vec3f(748.156, 692.87, 0),   // 72°
+        cv::Vec3f(356.844, 565.725, 0),   // 144°
+        cv::Vec3f(356.844, 154.275, 0),   // 216°
+        cv::Vec3f(748.156, 27.130, 0)     // 288°
+    };
 };
 
 /**
@@ -306,11 +320,12 @@ private:
      * @brief 提取已激活圆（高圆形度、无子轮廓、最外层）
      * @param vec_data    输入/输出轮廓数据
      * @param center_r    R 标中心
+     * @param current_angle 当前待激活圆参考角度（用于扇区划分）
      * @param div_data    输出分组容器
      * @param centers_out 输出中心点数组
      */
     void extractActivatedCircleCenter(std::vector<BuffData>& vec_data,
-        const cv::Point& center_r,
+        const cv::Point& center_r, const double current_angle,
         std::vector<std::vector<BuffData>>& div_data,
         std::vector<cv::Point>& centers_out);
 
@@ -400,3 +415,18 @@ private:
  * @return 读取成功返回 true，文件无法打开或格式错误返回 false
  */
 bool loadBuffParams(const std::string& filename, BuffParams& params);
+
+/**
+ * @brief 使用提取的中心点和世界坐标点进行 PnP 位姿估计
+ * @param params        视觉处理参数，包含相机内参等
+ * @param pixels        提取的像素坐标点，索引与 world_points 一一对应
+ * @param object_points 世界坐标系下的参考点，索引与 pixels 一一对应
+ * @param rvec          输出旋转向量
+ * @param tvec          输出平移向量
+ * @return 成功返回 true，输入点不足或计算失败返回 false
+ */
+bool SolvePNPWithCenter(const BuffParams& params, const std::vector<cv::Point>& pixels, 
+    const std::vector<cv::Point3f>& object_points,cv::Mat& rvec, cv::Mat& tvec);
+    
+bool getReprojectError(cv::Mat& image, const BuffParams& params, const std::vector<cv::Point>& pixels, 
+    const std::vector<cv::Point3f>& object_points, const cv::Mat& rvec, const cv::Mat& tvec);

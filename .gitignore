@@ -1,3 +1,6 @@
 *.avi
 *.mp4
+*.png
+*.jpg
+.vscode/
 build/

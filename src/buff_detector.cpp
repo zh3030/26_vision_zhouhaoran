@@ -3,6 +3,7 @@
 #include <cstdlib>
 #include <cmath>
 #include <string>
+#include <opencv2/opencv.hpp>
 #include <opencv2/core.hpp>
 #include <opencv2/imgproc.hpp>          // cv::findContours, cv::dilate, cv::GaussianBlur 等
 #include <opencv2/core/ocl.hpp>         // cv::ocl::useOpenCL, cv::UMat
@@ -92,7 +93,7 @@ void buff::run(cv::Mat& input) {
 #endif
 
     // 6. 提取已激活圆
-    extractActivatedCircleCenter(vec_data, center_r, temp_div, temp_centers);
+    extractActivatedCircleCenter(vec_data, center_r, current_angle, temp_div, temp_centers);
 
 #ifdef BUFF_TIME
     tm.stop();
@@ -214,6 +215,7 @@ void buff::subImage(const cv::Mat& input, cv::Mat& output) {
     cv::threshold(temp, temp, m_params.threshold_value, 255, cv::THRESH_BINARY);
     cv::GaussianBlur(temp, temp, cv::Size(3, 3), 0);
     cv::dilate(temp, temp, kernel);
+    std::cout << "GPU not used, processed on CPU." << std::endl;
     output = temp;
 }
 
@@ -306,6 +308,7 @@ bool buff::extractInactiveCircleCenter(std::vector<BuffData>& vec_data,
 // ---------- 已激活圆提取 ----------
 void buff::extractActivatedCircleCenter(std::vector<BuffData>& vec_data,
     const cv::Point& center_r,
+    const double current_angle,
     std::vector<std::vector<BuffData>>& div_data,
     std::vector<cv::Point>& centers_out) {
     // 反向遍历避免删除时下标错乱（size_t类型在0处--会变成负数导致死循环）
@@ -317,7 +320,7 @@ void buff::extractActivatedCircleCenter(std::vector<BuffData>& vec_data,
 
         vec_data[i].state_index_d = RmEnergyState::ActivatedCircle;
         vec_data[i].angle_d = geometry_utils::angle_from_center(center_r, vec_data[i].center_d);
-        vec_data[i].position_index_d = get_index(vec_data[i].angle_d, current_angle_m);
+        vec_data[i].position_index_d = get_index(vec_data[i].angle_d, current_angle);
         if (vec_data[i].position_index_d < 0 || vec_data[i].position_index_d > m_params.sector_count)
             continue; // 无效索引
 
@@ -363,6 +366,7 @@ void buff::processContours(std::vector<BuffData>& vec_data,
         vec_data.erase(vec_data.begin());
     }
 }
+
 // ---------- 角点提取 ----------
 void buff::findCorners(cv::Mat& image, const cv::Point& center_r,
     std::vector<std::vector<BuffData>>& div_data) {
@@ -374,24 +378,10 @@ void buff::findCorners(cv::Mat& image, const cv::Point& center_r,
         // 第一个元素应为该扇区的圆（激活圆或待激活圆）
         bool has_activated_circle = (div_data[sec][0].state_index_d == RmEnergyState::ActivatedCircle);
         if (div_data[sec].size() == 2) {
-// #ifdef BUFF_TIME
-//             tm.reset(); tm.start();
-// #endif
             extractUnoccludedBladeCorners(div_data[sec][1], image);
-// #ifdef BUFF_TIME
-            // tm.stop();
-            // std::cout << "Unoccluded blade (sec " << sec << "): " << tm.getTimeMilli() << " ms\n";
-// #endif
         }
         else if (div_data[sec].size() > 2 && has_activated_circle) {
-// #ifdef BUFF_TIME
-//             tm.reset(); tm.start();
-// #endif
             extractPartiallyOccludedBladeCorners(div_data[sec], image);
-// #ifdef BUFF_TIME
-//             tm.stop();
-//             // std::cout << "Partially occluded blade (sec " << sec << "): " << tm.getTimeMilli() << " ms\n";
-// #endif
         }
         else if (div_data[sec].size() > 2 && !has_activated_circle && div_data[sec][0].state_index_d == RmEnergyState::InactiveCircle) // 提取待激活圆的指示扇叶并标注角点
         {
@@ -573,6 +563,7 @@ void buff::drawDebugInfo(cv::Mat& image) {
     }
 }
 
+// ---------- 参数加载 ----------
 bool loadBuffParams(const std::string& filename, BuffParams& params) {
     cv::FileStorage fs(filename, cv::FileStorage::READ);
     if (!fs.isOpened()) {
@@ -606,6 +597,63 @@ bool loadBuffParams(const std::string& filename, BuffParams& params) {
     // 预测队列容量
     fs["max_vector_capacity"] >> params.max_vector_capacity;
 
+    // 相机内参
+    fs["camera_matrix"] >> params.camera_matrix;
+    fs["dist_coeffs"] >> params.dist_coeffs;
+
+    cv::FileNode wn = fs["world_points"];
+    params.world_points.clear();
+    if (wn.isSeq()) {
+        for (const auto& item : wn) {
+            cv::Point3f pt;
+            item >> pt;           // 每个 item 是 [x, y, z]
+            params.world_points.push_back(pt);
+        }
+    }
+
     fs.release();
     return true;
+}
+
+bool SolvePNPWithCenter(const BuffParams& params, const std::vector<cv::Point>& pixels, 
+    const std::vector<cv::Point3f>& object_points,cv::Mat& rvec, cv::Mat& tvec) {
+    std::vector<cv::Point2f> pixels_points;
+    std::vector <cv::Point3f> world_points;
+    for(int i = pixels.size() - 1; i >= 0; --i) {
+        if (i < 0) break;
+        if (pixels[i].x >= 0 && pixels[i].y >= 0) {
+            pixels_points.push_back(static_cast<cv::Point2f>(pixels[i]));
+            world_points.push_back(static_cast<cv::Point3f>(object_points[i]));
+        }
+    }
+    std::cout << "Pixels points size: " << pixels_points.size() << std::endl;
+    cv::solvePnP(world_points, pixels_points, params.camera_matrix, params.dist_coeffs, rvec, tvec, false, cv::SOLVEPNP_AP3P);
+    return true;
+}   
+
+bool getReprojectError(cv::Mat& image, const BuffParams& params, const std::vector<cv::Point>& pixels, 
+    const std::vector<cv::Point3f>& object_points, const cv::Mat& rvec, const cv::Mat& tvec) {
+    std::vector<cv::Point2f> projected_points;
+    std::vector <cv::Point3f> world_points;
+    for(size_t i = 0; i < pixels.size(); ++i) {
+        world_points.push_back(static_cast<cv::Point3f>(object_points[i]));
+    }
+    cv::projectPoints(world_points, rvec, tvec, params.camera_matrix, params.dist_coeffs, projected_points);
+    for(auto const& pt : projected_points) {
+        cv::circle(image, pt, 5, cv::Scalar(0, 255, 255), -1);
+    }
+    double total_error = 0.0;
+    int count = 0;
+    for(size_t i = 0; i < pixels.size(); ++i) {
+        if (pixels[i].x > 0 && pixels[i].y > 0) {
+            std::cout << i << std::endl;
+            double error = cv::norm(projected_points[count] - static_cast<cv::Point2f>(pixels[i]));
+            total_error += error;
+            ++count;
+            std::cout << pixels[i] << std::endl;
+            std::cout << "Count" << count << " Error is :" << error << std::endl;
+        }
+    }
+    double mean_error = (count > 0) ? total_error / count : std::numeric_limits<double>::max();
+    return mean_error < 5.0; // 设定一个合理的误差阈值
 }

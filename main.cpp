@@ -4,43 +4,49 @@
  * @author Zhou Haoran
  * @date 2026-05-20
  */
+#include <opencv2/opencv.hpp>
 #include "buff_detector.h"
 #include <iostream>
 #include <opencv2/videoio.hpp>
 #include <opencv2/highgui.hpp>
 
+// #define VIDEO_TEST
+
 int main(int argc, char** argv) {
-    std::string video_path = "../test1.mp4";   // 默认路径
+
+	std::string path = "../test1.mp4";   // 默认路径
     if (argc >= 2) {
-        video_path = argv[1];                  // 使用命令行参数
+		path = argv[1];                  // 使用命令行参数
     } else {
-        std::cout << "Usage: " << argv[0] << " <video_path>" << std::endl;
-        std::cout << "No video path provided, using default: " << video_path << std::endl;
+		std::cout << "Usage: " << argv[0] << " <path>" << std::endl;
+        std::cout << "No path provided, using default: " << path << std::endl;
     }
-    cv::VideoCapture cap(video_path);         
+#ifdef VIDEO_TEST
+    cv::VideoCapture cap(path);         
     if (!cap.isOpened()) {
-        std::cerr << "Error: Cannot open video file: " << video_path << std::endl;
+        std::cerr << "Error: Cannot open video file: " << path << std::endl;
         return -1;
     }
-	std::vector<cv::Vec3i> points =
-	{
-		cv::Vec3i(640, 360, 20),   // center R
-		cv::Vec3i(990, 360, 0),   // 0°
-		cv::Vec3i(748, 693, 0),   // 72°
-		cv::Vec3i(357, 566, 0),   // 144°
-		cv::Vec3i(357, 154, 0),   // 216°
-		cv::Vec3i(748, 27, 0)     // 288°
-	};
+#endif // VIDEO_TEST
+
     BuffParams params;
+
+	
     if(loadBuffParams("../config/buff_params.yaml", params))
     {
-        std::cout << "BuffParams loaded successfully in main.cpp\n";
+		std::cout << "BuffParams loaded successfully in main.cpp\n";
     }
     else
     {
-        std::cout << "Failed to load BuffParams in main.cpp, using defaults\n";
+		std::cout << "Failed to load BuffParams in main.cpp, using defaults\n";
     }
 	buff b(params);
+	std::vector<cv::Point3f> points = params.world_points; // 世界坐标系下的固定参考点（中心R和各扇叶位置)
+	std::cout << "World Points:\n";
+	for (size_t i = 0; i < points.size(); ++i) {
+		std::cout << "Point " << i << ": (" << points[i].x << ", " << points[i].y << ", " << points[i].z << ")\n";
+	}
+#ifdef VIDEO_TEST
 	cv::Mat frame, initial_frame, result_frame;
 	std::vector<cv::Point> center;
 	cv::Rect roi; int jump = 5; // 前几帧使用全图进行初始化，获取初始ROI，后续帧使用ROI进行处理，减少计算量
@@ -108,15 +114,31 @@ int main(int argc, char** argv) {
 			writer.write(initial_frame);
 			#endif
 			cv::imshow("frame", frame);
+			if (cv::waitKey(10) == 27) break; // 按下 ESC 键退出
 			#ifdef BUFF_TIME
 			tm.stop();
 			std::cout << "Frame processing time: " << tm.getTimeMilli() << " ms" << std::endl;
 			#endif
-			if (cv::waitKey(1) == 27) break; // 按下 ESC 键退出
 	}
-#ifdef BUFF_WRITE
+	#ifdef BUFF_WRITE
 	writer.release();
-#endif
+	#endif // BUFF_WRITE
 	cap.release();
+#endif // VIDEO_TEST
+
+#ifndef VIDEO_TEST
+	cv::Mat image = cv::imread(path);
+	b.run(image);
+	std::vector<cv::Point> center = b.get_points();
+
+	cv::Mat rvec, tvec;
+	if(SolvePNPWithCenter(params, center, points, rvec, tvec)) getReprojectError(image, params, center, points, rvec, tvec);
+	std::cout << "Rotation Vector:\n" << rvec << std::endl;
+	std::cout << "Translation Vector:\n" << tvec << std::endl;
+
+	cv::imshow("result", image);
+	cv::waitKey(0);
+#endif // VIDEO_TEST
+
 	return 0;
 }
