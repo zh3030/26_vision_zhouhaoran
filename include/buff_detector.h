@@ -430,3 +430,16 @@ bool SolvePNPWithCenter(const BuffParams& params, const std::vector<cv::Point>& 
     
 bool getReprojectError(cv::Mat& image, const BuffParams& params, const std::vector<cv::Point>& pixels, 
     const std::vector<cv::Point3f>& object_points, const cv::Mat& rvec, const cv::Mat& tvec);
+
+/**
+ * @brief 将像素点反投影到世界坐标系的 z=0 平面
+ * @param image_point     图像点（像素坐标）
+ * @param rvec            相机旋转向量（solvePnP 输出）
+ * @param tvec            相机平移向量
+ * @param K               相机内参矩阵 3×3
+ * @param world_point     输出：世界坐标点 (X, Y, 0) -> 以 Point2f 返回 X,Y
+ * @param eps             数值稳定性阈值，默认 1e-6
+ * @return true 成功，false 失败（点在相机后方或与平面无交点）
+ */
+bool imageToWorldZ0(const cv::Point2f& image_point, const cv::Mat& rvec, const cv::Mat& tvec, 
+    const cv::Mat& K_input, cv::Point2f& world_point, const double& eps = 1e-6);

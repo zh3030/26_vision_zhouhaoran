@@ -657,3 +657,92 @@ bool getReprojectError(cv::Mat& image, const BuffParams& params, const std::vect
     double mean_error = (count > 0) ? total_error / count : std::numeric_limits<double>::max();
     return mean_error < 5.0; // 设定一个合理的误差阈值
 }
+
+bool imageToWorldZ0(const cv::Point2f& image_point,
+                    const cv::Mat& rvec, const cv::Mat& tvec,
+                    const cv::Mat& K_input,
+                    cv::Point2f& world_point,
+                    const double& eps)
+{
+    cv::Mat K;
+    if (K_input.type() != CV_64F)
+        K_input.convertTo(K, CV_64F);
+    else
+        K = K_input;
+
+    // ---------- 1. 输入校验 ----------
+    if (rvec.empty() || tvec.empty() || K.empty()) {
+        std::cerr << "Input matrices are empty." << std::endl;
+        return false;
+    }
+    // 检查是否有 NaN 或 Inf
+    if (cv::checkRange(rvec) == false || cv::checkRange(tvec) == false || 
+        cv::checkRange(K) == false) {
+        std::cerr << "Input contains NaN/Inf." << std::endl;
+        return false;
+    }
+
+    // 内参
+    double fx = K.at<double>(0, 0);
+    double fy = K.at<double>(1, 1);
+    double cx = K.at<double>(0, 2);
+    double cy = K.at<double>(1, 2);
+    if (fx <= 0 || fy <= 0) {
+        std::cerr << "Focal length must be positive." << std::endl;
+        return false;
+    }
+
+    // ---------- 2. 旋转矩阵 ----------
+    cv::Mat R;
+    cv::Rodrigues(rvec, R);   // 3×3
+
+    // ---------- 3. 归一化方向 ----------
+    double x = (image_point.x - cx) / fx;
+    double y = (image_point.y - cy) / fy;
+    cv::Mat d = (cv::Mat_<double>(3, 1) << x, y, 1.0);
+
+    // ---------- 4. 检查射线是否与平面平行 ----------
+    // 世界 z=0 平面的法向量在相机坐标系下为 R 的第三列
+    cv::Mat normal_in_cam = R.col(2);   // 3×1
+    double dot_product = d.dot(normal_in_cam);  // 射线方向与平面法向量的点积
+    // 如果点积接近 0，则射线与平面平行，无交点
+    if (std::abs(dot_product) < eps) {
+        std::cerr << "Ray is parallel to the plane, no intersection." << std::endl;
+        return false;
+    }
+
+    // ---------- 5. 构建并求解 A * [X; Y; lambda] = -t ----------
+    cv::Mat A(3, 3, CV_64F);
+    R.col(0).copyTo(A.col(0));    // r1
+    R.col(1).copyTo(A.col(1));    // r2
+    d.copyTo(A.col(2));
+    A.col(2) = -A.col(2);         // -d
+
+    cv::Mat b = -tvec;
+
+    cv::Mat solution;
+    // 使用 SVD 分解，即使矩阵病态也能给出最小范数解
+    if (!cv::solve(A, b, solution, cv::DECOMP_SVD)) {
+        std::cerr << "Linear solver failed." << std::endl;
+        return false;
+    }
+
+    // ---------- 6. 检查结果有效性 ----------
+    double X = solution.at<double>(0);
+    double Y = solution.at<double>(1);
+    double lambda = solution.at<double>(2);
+
+    if (std::isnan(X) || std::isnan(Y) || std::isnan(lambda) ||
+        std::isinf(X) || std::isinf(Y) || std::isinf(lambda)) {
+        std::cerr << "Solution contains NaN/Inf." << std::endl;
+        return false;
+    }
+
+    if (lambda <= eps) {
+        std::cerr << "Intersection behind camera (lambda <= 0)." << std::endl;
+        return false;
+    }
+
+    world_point = cv::Point2f(static_cast<float>(X), static_cast<float>(Y));
+    return true;
+}

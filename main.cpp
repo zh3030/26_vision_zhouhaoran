@@ -10,7 +10,7 @@
 #include <opencv2/videoio.hpp>
 #include <opencv2/highgui.hpp>
 
-// #define VIDEO_TEST
+#define VIDEO_TEST
 
 int main(int argc, char** argv) {
 
@@ -30,8 +30,6 @@ int main(int argc, char** argv) {
 #endif // VIDEO_TEST
 
     BuffParams params;
-
-	
     if(loadBuffParams("../config/buff_params.yaml", params))
     {
 		std::cout << "BuffParams loaded successfully in main.cpp\n";
@@ -42,10 +40,6 @@ int main(int argc, char** argv) {
     }
 	buff b(params);
 	std::vector<cv::Point3f> points = params.world_points; // 世界坐标系下的固定参考点（中心R和各扇叶位置)
-	std::cout << "World Points:\n";
-	for (size_t i = 0; i < points.size(); ++i) {
-		std::cout << "Point " << i << ": (" << points[i].x << ", " << points[i].y << ", " << points[i].z << ")\n";
-	}
 #ifdef VIDEO_TEST
 	cv::Mat frame, initial_frame, result_frame;
 	std::vector<cv::Point> center;
@@ -66,15 +60,15 @@ int main(int argc, char** argv) {
 		std::cerr << "Error: Could not open video writer." << std::endl;
 		return -1;
 	}
-#endif
+#endif // BUFF_WRITE
 #ifdef BUFF_TIME
 	cv::TickMeter tm;
-#endif
+#endif // BUFF_TIME
 	while (cap.isOpened())
 	{
 		#ifdef BUFF_TIME
 		tm.reset(); tm.start();
-		#endif
+		#endif // BUFF_TIME
 		cap >> initial_frame;
 		if (initial_frame.empty()) break;
 		
@@ -112,7 +106,10 @@ int main(int argc, char** argv) {
 			// 此处原计划用于测试角速度，后续计划封装，但未完成。
 			#ifdef BUFF_WRITE
 			writer.write(initial_frame);
-			#endif
+			#endif // BUFF_WRITE
+
+
+
 			cv::imshow("frame", frame);
 			if (cv::waitKey(10) == 27) break; // 按下 ESC 键退出
 			#ifdef BUFF_TIME
@@ -135,6 +132,14 @@ int main(int argc, char** argv) {
 	if(SolvePNPWithCenter(params, center, points, rvec, tvec)) getReprojectError(image, params, center, points, rvec, tvec);
 	std::cout << "Rotation Vector:\n" << rvec << std::endl;
 	std::cout << "Translation Vector:\n" << tvec << std::endl;
+	
+	cv::Point2f world_point;
+	for(const auto& point : center)
+	{
+		imageToWorldZ0(point, rvec, tvec, params.camera_matrix, world_point);
+		std::cout << world_point << std::endl;
+	}
+	std::cout << "World coordinates of the first point (z=0 plane): (" << world_point.x << ", " << world_point.y << ")\n";	
 
 	cv::imshow("result", image);
 	cv::waitKey(0);
